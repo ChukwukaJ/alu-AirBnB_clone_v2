@@ -1,71 +1,69 @@
 #!/usr/bin/python3
-""" Place Module for HBNB project """
-import os
-
-from models.base_model import BaseModel, Base
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, Table
-from sqlalchemy.orm import relationship
-from models.review import Review
-from models.amenity import Amenity
-import models
-
-place_amenity = Table('place_amenity', Base.metadata,
-                      Column('place_id', String(60),
-                             ForeignKey('places.id'),
-                             primary_key=True, nullable=False),
-                      Column('amenity_id', String(60),
-                             ForeignKey('amenities.id'),
-                             primary_key=True, nullable=False))
+"""This module defines a class to manage file storage for hbnb clone"""
+import json
 
 
-class Place(BaseModel, Base):
-    """ A place to stay """
-    __tablename__ = 'places'
+class FileStorage:
+    """This class manages storage of hbnb models in JSON format"""
+    __file_path = 'file.json'
+    __objects = {}
 
-    city_id = Column(String(60), ForeignKey("cities.id", ondelete="CASCADE"),
-                     nullable=False)
-    user_id = Column(String(60), ForeignKey("users.id", ondelete="CASCADE"),
-                     nullable=False)
-    name = Column(String(128), nullable=False)
-    description = Column(String(1024), nullable=True)
-    number_rooms = Column(Integer, nullable=False, default=0)
-    number_bathrooms = Column(Integer, nullable=False, default=0)
-    max_guest = Column(Integer, nullable=False, default=0)
-    price_by_night = Column(Integer, nullable=False, default=0)
-    latitude = Column(Float, nullable=True)
-    longitude = Column(Float, nullable=True)
-    amenity_ids = []
+    def all(self, cls=None):
+        """Returns a dictionary of models currently in storage"""
+        if cls is None:
+            return self.__objects
+        else:
+            filtered_obj = {}
+            for key, value in self.__objects.items():
+                if type(value) == cls:
+                    filtered_obj[key] = value
+            return filtered_obj
 
-    if os.getenv("HBNB_TYPE_STORAGE") == "db":
-        reviews = relationship("Review", backref="place")
-        amenities = relationship("Amenity", secondary="place_amenity",
-                                 viewonly=False,
-                                 back_populates="place_amenities")
+    def new(self, obj):
+        """Adds new object to storage dictionary"""
+        self.all().update({obj.to_dict()['__class__'] + '.' + obj.id: obj})
 
-    if os.getenv("HBNB_TYPE_STORAGE") != "db":
-        @property
-        def reviews(self):
-            """Returns the list of Review instances with place_id equals
-            to the current Place.id."""
+    def delete(self, obj=None):
+        """Deletes obj from objects"""
+        if obj is not None:
+            key = key = obj.__class__.__name__ + "." + obj.id
+            if key in self.__objects:
+                del self.__objects[key]
+                self.save()
 
-            reviews = list(models.storage.all(Review).values())
+    def save(self):
+        """Saves storage dictionary to file"""
+        with open(self.__file_path, 'w') as f:
+            temp = {}
+            temp.update(FileStorage.__objects)
+            for key, val in temp.items():
+                temp[key] = val.to_dict()
+            json.dump(temp, f)
 
-            return list(
-                filter(lambda review: (review.place_id == self.id), reviews))
+    def reload(self):
+        """Loads storage dictionary from file"""
+        from models.base_model import BaseModel
+        from models.user import User
+        from models.place import Place
+        from models.state import State
+        from models.city import City
+        from models.amenity import Amenity
+        from models.review import Review
 
-        @property
-        def amenities(self):
-            """Returns the list of Amenity instances based on
-            the attribute amenity_ids that contains all Amenity.id."""
+        classes = {
+            'BaseModel': BaseModel, 'User': User, 'Place': Place,
+            'State': State, 'City': City, 'Amenity': Amenity,
+            'Review': Review
+        }
+        try:
+            temp = {}
+            with open(FileStorage.__file_path, 'r') as f:
+                temp = json.load(f)
+                for key, val in temp.items():
+                    self.all()[key] = classes[val['__class__']](**val)
+        except FileNotFoundError:
+            pass
 
-            amenities = list(models.storage.all(Amenity).values())
-
-            return list(
-                filter(lambda amenity: (amenity.place_id in self.amenity_ids),
-                       amenities))
-
-        @amenities.setter
-        def amenities(self, value=None):
-            """Adds ids in amenity_ids ."""
-            if type(value) == type(Amenity):
-                self.amenity_ids.append(value.id)
+    def close(self):
+        """Deserialize the JSON file to objects"""
+        self.reload()
