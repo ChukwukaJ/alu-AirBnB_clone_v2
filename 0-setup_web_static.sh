@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # sets up web server with nginx, folders and configuration
 
 sudo apt-get -y update
